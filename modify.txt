@@ -26,3 +26,54 @@ Tasks:
 NOTE: Change the variable name below from {{user_query}} to {{question}}
 Clinical Question: {{question}}
 """
+================================================================
+from langchain.prompts import PromptTemplate
+
+# 1. Define the plain query string
+user_query = "What is the recommended first-line treatment protocol for a diagnosed Type 2 diabetes patient?"
+
+# 2. Define the structural template (Note: DO NOT use an f-string here. Keep it a standard triple-quote string)
+# Keep the literal tags {context} and {question} exactly as they are. LangChain will inject the values automatically.
+medical_template = """You are an expert clinical decision support assistant. 
+Analyze the provided medical guideline context to answer the clinical question.
+
+Context from Guidelines:
+{context}
+
+Tasks to perform:
+1. Provide a direct, evidence-backed medical answer.
+2. Provide a clear, step-by-step summary of the treatment pathway.
+3. If the provided context does not explicitly contain the answer, state: "Information not found in current guidelines." Do not hallucinate.
+4. Add an explicit warning highlighting scenarios where advanced clinical judgment or a specialist consultation is mandatory.
+
+Clinical Question: {question}
+Answer:"""
+
+# 3. Register the prompt blueprint inside LangChain
+CLINICAL_PROMPT = PromptTemplate(
+    template=medical_template, 
+    input_variables=["context", "question"]
+)
+
+# 4. Re-initialize the QA chain to use this new template wrapper
+qa_chain = RetrievalQA.from_chain_type(
+    llm=llm,
+    chain_type="stuff",
+    retriever=knowledge_base.as_retriever(search_kwargs={"k": 3}),
+    return_source_documents=True,
+    chain_type_kwargs={"prompt": CLINICAL_PROMPT} # Links your prompt structure to the chain
+)
+
+# 5. Invoke the chain cleanly by passing ONLY the simple question string
+response = qa_chain.invoke({"query": user_query})
+
+# --- Format and Print Outputs ---
+print("## CLINICAL RESPONSE ##")
+print(response["result"])
+print("\n" + "-"*50 + "\n")
+
+print("## VERIFIED SOURCE CITATIONS ##")
+for idx, doc in enumerate(response["source_documents"], start=1):
+    source_file = doc.metadata.get("source", "Unknown Document")
+    page_num = doc.metadata.get("page", "Unknown Page")
+    print(f"Citation [{idx}]: Document: {source_file} | Reference Page: {page_num}")
