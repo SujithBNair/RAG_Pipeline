@@ -1,0 +1,12 @@
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+
+# Smart splitter that maintains sentence and paragraph integrity
+text_splitter = RecursiveCharacterTextSplitter(
+    chunk_size=600,       # Slightly larger size to capture complete medical sentences
+    chunk_overlap=100,    # Increased overlap so context transitions smoothly
+    separators=["\n\n", "\n", " ", ""]  # Tries to split at double newlines first
+)
+
+# Re-split the document
+split_docs = text_splitter.split_documents(raw_documents)
+print(f"Created {len(split_docs)} semantic text chunks.")
