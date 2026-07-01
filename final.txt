@@ -1,0 +1,139 @@
+import os
+import requests
+import json
+from pypdf import PdfReader
+from langchain_community.llms import Ollama
+from langchain_community.vectorstores import FAISS
+from langchain.embeddings.base import Embeddings
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.chains import RetrievalQA
+from langchain.docstore.document import Document
+from langchain.prompts import PromptTemplate
+
+# =====================================================================
+# 1. CUSTOM OLLAMA EMBEDDINGS CLASS
+# =====================================================================
+class OllamaEmbeddings(Embeddings):
+    def __init__(self, model='llama3.2', url='http://localhost:11434/api/embeddings'):
+        self.model = model
+        self.url = url
+
+    def embed(self, text):
+        headers = {'Content-Type': 'application/json'}
+        payload = {'model': self.model, 'prompt': text}
+        response = requests.post(self.url, headers=headers, data=json.dumps(payload))
+        
+        if response.status_code == 200:
+            response_json = response.json()
+            if 'embedding' in response_json:
+                return response_json['embedding']
+        raise Exception(f"Error {response.status_code}: {response.text}")
+
+    def embed_documents(self, texts):
+        return [self.embed(text) for text in texts]
+
+    def embed_query(self, text):
+        return self.embed(text)
+
+
+# =====================================================================
+# 2. DATA INGESTION FUNCTION FOR TXT FILES
+# =====================================================================
+def load_medical_txt(file_path):
+    documents = []
+    
+    # Open and read the plain text knowledge base
+    with open(file_path, 'r', encoding='utf-8') as file:
+        text_content = file.read()
+        
+    # Pack text alongside metadata tracking parameters
+    doc = Document(
+        page_content=text_content,
+        metadata={
+            "source": os.path.basename(file_path),
+            "type": "Text Documentation"
+        }
+    )
+    documents.append(doc)
+    return documents
+
+
+# =====================================================================
+# 3. PIPELINE INITIALIZATION & EXECUTION
+# =====================================================================
+
+# Define knowledge base filename
+txt_path = "test.txt" 
+
+# Step A: Load the text document into memory
+raw_documents = load_medical_txt(txt_path)
+print(f"Successfully loaded text document: {txt_path}")
+
+# Step B: Apply semantic sentence text splitting 
+text_splitter = RecursiveCharacterTextSplitter(
+    chunk_size=600,       
+    chunk_overlap=100,    
+    separators=["\n\n", "\n", " ", ""]
+)
+split_docs = text_splitter.split_documents(raw_documents)
+print(f"Created {len(split_docs)} semantic text chunks.")
+
+# Step C: Initialize deterministic Local LLM & Embeddings engine
+llm = Ollama(model="llama3.2", temperature=0, num_ctx=4096)
+embeddings = OllamaEmbeddings()
+
+# Step D: Construct the local FAISS index store
+knowledge_base = FAISS.from_documents(split_docs, embeddings)
+print("FAISS Knowledge base indexed successfully.")
+
+# Step E: Design Structured System Level Master Template Blueprint
+# Note: Use literal {context} and {question} markers for automated LangChain parsing
+medical_template = """You are an expert clinical decision support assistant. 
+Analyze the provided medical guideline context to answer the clinical question.
+
+Context from Guidelines:
+{context}
+
+Tasks to perform:
+1. Provide a direct, evidence-backed medical answer.
+2. Provide a clear, step-by-step summary of the treatment pathway.
+3. If the provided context does not explicitly contain the answer, state: "Information not found in current guidelines." Do not hallucinate.
+4. Add an explicit warning highlighting scenarios where advanced clinical judgment or a specialist consultation is mandatory.
+
+Clinical Question: {question}
+Answer:"""
+
+CLINICAL_PROMPT = PromptTemplate(
+    template=medical_template, 
+    input_variables=["context", "question"]
+)
+
+# Step F: Assemble Orchestration Chain
+qa_chain = RetrievalQA.from_chain_type(
+    llm=llm,
+    chain_type="stuff",
+    retriever=knowledge_base.as_retriever(search_kwargs={"k": 3}),
+    return_source_documents=True,
+    chain_type_kwargs={"prompt": CLINICAL_PROMPT} 
+)
+
+
+# =====================================================================
+# 4. RUN QUERY & PRINT CAPSTONE EXPECTED OUTPUTS
+# =====================================================================
+user_query = "What is the recommended first-line treatment protocol for a diagnosed Type 2 diabetes patient?"
+print(f"\nRunning Query: '{user_query}'...\n")
+
+# Run the RAG workflow
+response = qa_chain.invoke({"query": user_query})
+
+# Print formatting outputs
+print("## CLINICAL RESPONSE ##")
+print(response["result"])
+print("\n" + "-"*60 + "\n")
+
+print("## VERIFIED SOURCE CITATIONS ##")
+for idx, doc in enumerate(response["source_documents"], start=1):
+    source_file = doc.metadata.get("source", "Unknown Document")
+    doc_type = doc.metadata.get("type", "Unknown Section")
+    print(f"Citation [{idx}]: Source File: {source_file} | Reference: {doc_type}")
