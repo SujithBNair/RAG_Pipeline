@@ -1,0 +1,25 @@
+def load_medical_txt(file_path):
+    documents = []
+    
+    # Open and read the plain text file
+    with open(file_path, 'r', encoding='utf-8') as file:
+        text_content = file.read()
+        
+    # Pack the entire text into a standard LangChain Document object
+    # We add metadata so the system can still provide a source citation
+    doc = Document(
+        page_content=text_content,
+        metadata={
+            "source": os.path.basename(file_path),
+            "type": "Text Documentation"
+        }
+    )
+    documents.append(doc)
+    return documents
+
+# TODO: Replace this with your actual local text file name
+txt_path = "clinical_guidelines_diabetes.txt" 
+
+# Load the text file into the LangChain format
+raw_documents = load_medical_txt(txt_path)
+print(f"Successfully loaded text document: {txt_path}")
