@@ -1,0 +1,137 @@
+Step 1: Imports & Advanced Setup
+We will pull in the same core libraries, but we'll include LangChain components that let us retrieve source document information alongside the text chunks to handle the "Citations" requirement.
+
+import os
+import requests
+import json
+from pypdf import PdfReader
+from langchain_community.llms import Ollama
+from langchain_community.vectorstores import FAISS
+from langchain.embeddings.base import Embeddings
+from langchain.text_splitter import CharacterTextSplitter
+# Using RetrievalQA with return_source_documents to fetch the citation sources
+from langchain.chains import RetrievalQA
+from langchain.docstore.document import Document
+
+Step 2: Custom Ollama Embeddings Class
+(Keep this exactly as you built it—it works perfectly for communicating with your local Ollama instance).
+
+class OllamaEmbeddings(Embeddings):
+    def __init__(self, model='llama3.2', url='http://localhost:11434/api/embeddings'):
+        self.model = model
+        self.url = url
+
+    def embed(self, text):
+        headers = {'Content-Type': 'application/json'}
+        payload = {'model': self.model, 'prompt': text}
+        response = requests.post(self.url, headers=headers, data=json.dumps(payload))
+        
+        if response.status_code == 200:
+            response_json = response.json()
+            if 'embedding' in response_json:
+                return response_json['embedding']
+        raise Exception(f"Error {response.status_code}: {response.text}")
+
+    def embed_documents(self, texts):
+        return [self.embed(text) for text in texts]
+
+    def embed_query(self, text):
+        return self.embed(text)
+		
+		Step 3: Medical Document Ingestion with Metadata Tracking
+For medical guidelines, a simple text string isn't enough. When creating the Document objects, we need to inject metadata (like the source filename and page numbers) so the final answer can cite exactly where the guideline came from.
+
+
+def load_medical_pdf(file_path):
+    reader = PdfReader(file_path)
+    documents = []
+    
+    # Track page numbers for exact citations
+    for page_num, page in enumerate(reader.pages, start=1):
+        text = page.extract_text()
+        if text.strip():  # Skip empty pages
+            # Pack text alongside metadata
+            doc = Document(
+                page_content=text,
+                metadata={
+                    "source": os.path.basename(file_path),
+                    "page": page_num
+                }
+            )
+            documents.append(doc)
+    return documents
+
+# TODO: Replace this filename with your actual clinical PDF file name
+pdf_path = "clinical_guidelines_diabetes_2026.pdf" 
+
+# Load all pages to avoid missing details!
+raw_documents = load_medical_pdf(pdf_path)
+print(f"Loaded {len(raw_documents)} pages from the guideline.")
+
+Step 4: Smart Text Splitting
+Medical texts contain tight, step-by-step conditional paths (e.g., "If HbA1c > 9%, start combination therapy"). We'll adjust the chunk size to ensure these conditional treatment loops don't get chopped in half.
+
+# Slightly larger chunks to capture complete diagnostic context
+text_splitter = CharacterTextSplitter(
+    separator="\n",
+    chunk_size=500, 
+    chunk_overlap=50
+)
+
+# Split the structured documents (metadata drops into chunks automatically)
+split_docs = text_splitter.split_documents(raw_documents)
+print(f"Created {len(split_docs)} overlapping medical text chunks.")
+
+Step 5: Instantiate AI Models & Build Vector Store
+
+# 1. Initialize deterministic local LLM (Strict facts only)
+llm = Ollama(model="llama3.2", temperature=0)
+
+# 2. Initialize Embeddings engine
+embeddings = OllamaEmbeddings()
+
+# 3. Create FAISS Knowledge base
+knowledge_base = FAISS.from_documents(split_docs, embeddings)
+
+Step 6: Clinical Orchestration Chain (with Citations Enabled)
+To meet your capstone requirement, we must alter how the RAG chain outputs data. We modify RetrievalQA to return the underlying source documents used to build the answer.
+
+qa_chain = RetrievalQA.from_chain_type(
+    llm=llm,
+    chain_type="stuff",
+    retriever=knowledge_base.as_retriever(search_kwargs={"k": 3}), # Pull top 3 relevant chunks
+    return_source_documents=True # CRITICAL: This extracts the citation blocks
+)
+
+Step 7: Clinical System Prompt Engineering & Execution
+Here, we construct a rigorous medical prompt template that handles the project requirements: Evidence-backed answers, treatment pathway tracking, and required safety/judgment warnings.
+
+# A clinical inquiry sample
+user_query = "What is the recommended first-line treatment protocol for a newly diagnosed Type 2 diabetes patient?"
+
+clinical_prompt = f"""
+You are an expert clinical decision support assistant. Analyze the provided medical guideline context to answer the clinical question.
+
+Tasks:
+1. Provide a direct, evidence-backed medical answer.
+2. Provide a clear, step-by-step summary of the treatment pathway.
+3. If the provided context does not explicitly contain the answer, state: "Information not found in current guidelines." Do not hallucinate.
+4. Add a explicit warning highlighting scenarios where advanced clinical judgment or a specialist consultation is mandatory.
+
+Clinical Question: {user_query}
+"""
+
+# Invoke the medical RAG pipeline
+response = qa_chain.invoke({"query": clinical_prompt})
+
+# --- Format and Print the Expected Capstone Outputs ---
+print("## CLINICAL RESPONSE ##")
+print(response["result"])
+print("\n" + "-"*50 + "\n")
+
+print("## VERIFIED SOURCE CITATIONS ##")
+# Extract and loop through the source tracking metadata we preserved in Step 3
+for idx, doc in enumerate(response["source_documents"], start=1):
+    source_file = doc.metadata.get("source", "Unknown Document")
+    page_num = doc.metadata.get("page", "Unknown Page")
+    print(f"Citation [{idx}]: Document: {source_file} | Reference Page: {page_num}")

@@ -1,0 +1,29 @@
+Act as an expert medical data architect and clinical content specialist. 
+
+I am building a local GenAI RAG application (a Clinical Guidelines Q&A Assistant). I need a comprehensive, highly accurate, and clean text dataset to use as my local knowledge base (.txt file).
+
+Please generate a detailed, structured clinical guideline documentation for the following disease(s): [INSERT DISEASES HERE, e.g., Type 2 Diabetes, Hypertension, Asthma].
+
+For each disease, you must provide absolute clarity, strict dosage structures, and conditional logic. Organize the content under these exact headers so my RAG chunking algorithm can index it efficiently:
+
+### DISEASE NAME: [Insert Name]
+
+1. CLINICAL DIAGNOSTIC CRITERIA
+- Outline exact diagnostic parameters, symptoms, and laboratory thresholds (e.g., specific HbA1c %, Blood Pressure mm Hg cutoffs, Spirometry ratios).
+
+2. FIRST-LINE TREATMENT PROTOCOL
+- Step-by-step starting management protocol.
+- Specific drug names, standard starting dosages, and administration frequencies.
+- Lifestyle modification requirements.
+
+3. ESCALATION & TREATMENT PATHWAY (CONDITIONAL LOGIC)
+- Clear "IF/THEN" guidelines for treatment failure. (e.g., "IF first-line monotherapy fails to control parameters after 3 months, THEN escalate to combination therapy by adding...")
+- Second-line and third-line drug interventions with explicit combinations and dosages.
+
+4. DRUG AND DOSAGE REFERENCE MATERIAL
+- A concise list of primary medications, therapeutic classes, standard maintenance dosages, and major absolute contraindications.
+
+5. CLINICAL RED FLAGS & CRITICAL WARNINGS
+- Clear scenarios where a general healthcare team MUST bypass this standard protocol and immediately defer to an advanced specialist or use subjective clinical judgment (e.g., organ failure signs, pregnancy complications, extreme acute exacerbations).
+
+Ensure the language is entirely professional, objective, and dense with factual data. Avoid conversational filler or introductory text so that it can be saved directly as a clean .txt data file.
